@@ -24,9 +24,42 @@ async function run() {
   });
   const page = await context.newPage();
 
-  // Hide automation signals
+  // Hide automation signals — CPS checks multiple properties
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => false });
+
+    // Fake plugin array (headless Chrome has 0 plugins)
+    Object.defineProperty(navigator, "plugins", {
+      get: () => {
+        const arr = [
+          { name: "Chrome PDF Plugin", filename: "internal-pdf-viewer" },
+          { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai" },
+          { name: "Native Client", filename: "internal-nacl-plugin" },
+        ];
+        (arr as any).namedItem = (n: string) => arr.find((p) => p.name === n) ?? null;
+        (arr as any).refresh = () => {};
+        return arr;
+      },
+    });
+
+    // Fake languages
+    Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"] });
+
+    // Fake chrome object (missing in headless)
+    (window as any).chrome = {
+      runtime: { onConnect: { addListener: () => {} }, onMessage: { addListener: () => {} } },
+      loadTimes: () => ({}),
+      csi: () => ({}),
+    };
+
+    // Fake permissions query to avoid "notification denied" fingerprint
+    const origQuery = Permissions.prototype.query;
+    Permissions.prototype.query = function (desc: any) {
+      if (desc.name === "notifications") {
+        return Promise.resolve({ state: "prompt", onchange: null } as PermissionStatus);
+      }
+      return origQuery.call(this, desc);
+    };
   });
 
   const dryRun = process.argv.includes("--dry-run");

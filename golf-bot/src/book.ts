@@ -173,15 +173,18 @@ async function addBuddies(page: Page): Promise<void> {
 
   console.log("Adding playing partners...");
 
-  // Wait for the confirmation page to fully load
-  await page.waitForTimeout(3000);
+  // Wait for the Prior Playing Partners section to render
+  try {
+    await page.waitForSelector("text=Prior Playing Partners", { timeout: 15000 });
+    await page.waitForTimeout(2000);
+  } catch {
+    console.log("  Prior Playing Partners section not found, skipping buddy add.");
+    return;
+  }
 
   for (const buddy of config.booking.buddies) {
     console.log(`  Adding ${buddy}...`);
 
-    // Each Prior Playing Partner is a card: [person_icon] NAME [+ button]
-    // The "+" is a mat-icon button inside the same card as the name.
-    // Find the name text, go up to the card container, then find the + icon.
     const nameEl = page.locator(`text="${buddy}"`).first();
     if (await nameEl.count() === 0) {
       console.log(`  ${buddy} not found in Prior Playing Partners.`);
@@ -212,15 +215,73 @@ async function addBuddies(page: Page): Promise<void> {
   }
 }
 
+async function clickTeeTimeAndWaitForConfirm(page: Page, button: Locator): Promise<void> {
+  console.log("Clicking tee time button...");
+
+  // Handle browser-level dialogs (window.confirm) that CPS may use
+  page.on("dialog", async (dialog) => {
+    console.log(`  Dialog: ${dialog.message()}`);
+    await dialog.accept();
+  });
+
+  // Click and wait for the LockTeeTimes API response
+  const [lockResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes("LockTeeTimes"), { timeout: 15000 }),
+    button.click(),
+  ]);
+
+  console.log(`  LockTeeTimes: ${lockResp.status()}`);
+
+  // CPS may show a warning dialog (e.g. "already have a reservation for this day")
+  const lockBody = await lockResp.text().catch(() => "");
+  try {
+    const lockJson = JSON.parse(lockBody);
+    if (lockJson.warning) {
+      console.log(`  Warning: ${lockJson.warning}`);
+      await page.waitForTimeout(2000);
+
+      // Dismiss Angular Material dialog by clicking the affirmative button
+      const dialogBtns = page.locator(".cdk-overlay-container button");
+      for (let i = 0; i < await dialogBtns.count(); i++) {
+        const btnText = (await dialogBtns.nth(i).textContent())?.trim() ?? "";
+        if (/yes|ok|continue|confirm|book/i.test(btnText)) {
+          await dialogBtns.nth(i).click();
+          console.log(`  Confirmed dialog: "${btnText}"`);
+          break;
+        }
+      }
+    }
+  } catch {
+    // Not JSON, continue
+  }
+
+  // Wait for the SPA to transition to the confirmation/checkout page
+  await page.waitForLoadState("networkidle");
+
+  try {
+    await page.locator("text=Player 1")
+      .or(page.locator("text=Time left to book"))
+      .or(page.locator("text=Customize your Reservation"))
+      .first()
+      .waitFor({ state: "visible", timeout: 15000 });
+    console.log("  Confirmation page loaded.");
+  } catch {
+    console.log(`  URL: ${page.url()}`);
+    const bodyText = await page.locator("body").innerText();
+    console.log(`  Page text: ${bodyText.slice(0, 500)}`);
+    await screenshot(page, "confirm-missing.png");
+    throw new Error("Confirmation page never loaded after tee time click");
+  }
+}
+
 async function finalizeReservation(page: Page): Promise<boolean> {
   console.log("Finalizing reservation...");
 
-  // Wait for any loading to finish
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(1000);
-
+  // Wait for the Finalize button to appear
   const finalizeBtn = page.getByRole("button", { name: /finalize reservation/i });
-  if (await finalizeBtn.count() === 0) {
+  try {
+    await finalizeBtn.waitFor({ state: "visible", timeout: 15000 });
+  } catch {
     console.log("Finalize Reservation button not found!");
     await screenshot(page, "finalize-missing.png");
     return false;
@@ -325,9 +386,7 @@ export async function findTeeTimes(page: Page): Promise<void> {
   const pick = result.candidates[0];
   console.log(`\n[dry-run] Selecting: ${pick.time} at ${pick.course} (${pick.players})`);
 
-  await pick.button.click();
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(3000);
+  await clickTeeTimeAndWaitForConfirm(page, pick.button);
 
   await screenshot(page, "booking-confirm.png");
 
@@ -345,9 +404,7 @@ export async function selectDateAndBook(page: Page): Promise<boolean> {
   const pick = result.candidates[0];
   console.log(`\nSelecting: ${pick.time} at ${pick.course} (${pick.players})`);
 
-  await pick.button.click();
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(3000);
+  await clickTeeTimeAndWaitForConfirm(page, pick.button);
 
   await screenshot(page, "booking-confirm.png");
 
