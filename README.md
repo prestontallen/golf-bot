@@ -15,6 +15,7 @@ Automated tee time booking for [CPS Golf](https://cityofwichita.cps.golf) (Club 
 ## Local Setup
 
 ```bash
+cd golf-bot
 npm install
 npx playwright install chromium
 cp .env.example .env
@@ -35,11 +36,13 @@ cp .env.example .env
 | `CPS_DAYS_AHEAD` | `7` | Days ahead to book (max availability window) |
 | `CPS_SCHEDULE_CRON` | `0 6 * * *` | Cron schedule for booking attempts |
 
-Course priority and buddies are configured in `src/config.ts`.
+Course priority and buddies are configured in `golf-bot/src/config.ts`.
 
 ## Usage
 
 ```bash
+cd golf-bot
+
 # Dry run -- searches and selects a time but does not finalize
 npm run dry-run
 
@@ -55,10 +58,12 @@ npm run start:headless
 
 ## Home Assistant Add-on
 
-1. Add this repository as a [custom add-on repository](https://www.home-assistant.io/hassio/installing_third_party_addons/) in Home Assistant
-2. Install the "Golf Bot" add-on
-3. Configure your credentials and preferences in the add-on settings
-4. Start the add-on -- it will run on the configured cron schedule
+1. In Home Assistant, go to **Settings > Add-ons > Add-on Store**
+2. Click the three dots menu (top right) > **Repositories**
+3. Add: `https://github.com/prestontallen/golf-bot`
+4. Install the **Golf Bot** add-on
+5. Go to the add-on **Configuration** tab and set your credentials and preferences
+6. Start the add-on -- it will run on the configured cron schedule
 
 The add-on sends Home Assistant persistent notifications on booking success or failure.
 
