@@ -35,10 +35,12 @@ async function run() {
       }
     }
   } catch (err) {
-    await page.screenshot({
-      path: `${config.screenshotDir}/error.png`,
-      fullPage: true,
-    });
+    if (!config.isHa) {
+      await page.screenshot({
+        path: `${config.screenshotDir}/error.png`,
+        fullPage: true,
+      });
+    }
     console.error("Error:", err);
     await notify(`Booking failed: ${err instanceof Error ? err.message : err}`);
   } finally {
@@ -48,7 +50,9 @@ async function run() {
 
 async function main() {
   validateConfig();
-  mkdirSync(config.screenshotDir, { recursive: true });
+  if (!config.isHa) {
+    mkdirSync(config.screenshotDir, { recursive: true });
+  }
 
   // If run with --once flag, just run once and exit
   if (process.argv.includes("--once")) {

@@ -4,7 +4,6 @@ interface HaOptions {
   cps_email: string;
   cps_password: string;
   course_url: string;
-  players: number;
   holes: number;
   earliest_time: string;
   latest_time: string;
@@ -41,7 +40,6 @@ export const config = {
   },
 
   booking: {
-    players: ha?.players ?? parseInt(process.env.CPS_PLAYERS ?? "2"),
     holes: (ha?.holes ?? parseInt(process.env.CPS_HOLES ?? "18")) as 9 | 18,
     earliestTime: ha?.earliest_time ?? process.env.CPS_EARLIEST_TIME ?? "08:30",
     latestTime: ha?.latest_time ?? process.env.CPS_LATEST_TIME ?? "10:00",
@@ -53,6 +51,11 @@ export const config = {
 
     // Buddies to auto-add on the confirmation page
     buddies: ha?.buddies ?? ["REBEKAH BRAKEBILL"],
+
+    // 1 (you) + number of buddies
+    get players(): number {
+      return 1 + this.buddies.length;
+    },
   },
 
   scheduleCron: ha?.schedule_cron ?? process.env.CPS_SCHEDULE_CRON ?? "0 6 * * *",

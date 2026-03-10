@@ -1,6 +1,13 @@
 import { Page, Locator } from "playwright";
 import { config } from "./config.js";
 
+async function screenshot(page: Page, name: string): Promise<void> {
+  if (config.isHa) return;
+  const path = `${config.screenshotDir}/${name}`;
+  await page.screenshot({ path, fullPage: true });
+  console.log(`Screenshot: ${name}`);
+}
+
 function getTargetDate(): Date {
   const target = new Date();
   target.setDate(target.getDate() + config.booking.daysAhead);
@@ -215,10 +222,7 @@ async function finalizeReservation(page: Page): Promise<boolean> {
   const finalizeBtn = page.getByRole("button", { name: /finalize reservation/i });
   if (await finalizeBtn.count() === 0) {
     console.log("Finalize Reservation button not found!");
-    await page.screenshot({
-      path: `${config.screenshotDir}/finalize-missing.png`,
-      fullPage: true,
-    });
+    await screenshot(page, "finalize-missing.png");
     return false;
   }
 
@@ -226,11 +230,7 @@ async function finalizeReservation(page: Page): Promise<boolean> {
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(3000);
 
-  await page.screenshot({
-    path: `${config.screenshotDir}/finalized.png`,
-    fullPage: true,
-  });
-  console.log("Screenshot: finalized.png");
+  await screenshot(page, "finalized.png");
 
   return true;
 }
@@ -255,11 +255,7 @@ async function searchTeeTimes(page: Page): Promise<{ target: Date; candidates: T
   await setPlayerFilter(page);
   await navigateToDate(page, target);
 
-  await page.screenshot({
-    path: `${config.screenshotDir}/target-date.png`,
-    fullPage: true,
-  });
-  console.log("Screenshot: target-date.png");
+  await screenshot(page, "target-date.png");
 
   await expandAllSections(page);
 
@@ -333,20 +329,12 @@ export async function findTeeTimes(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(3000);
 
-  await page.screenshot({
-    path: `${config.screenshotDir}/booking-confirm.png`,
-    fullPage: true,
-  });
-  console.log("Screenshot: booking-confirm.png");
+  await screenshot(page, "booking-confirm.png");
 
   await addBuddies(page);
 
-  await page.screenshot({
-    path: `${config.screenshotDir}/dry-run-final.png`,
-    fullPage: true,
-  });
-  console.log("Screenshot: dry-run-final.png");
-  console.log("\n[dry-run] Stopping before Finalize Reservation. Check screenshots.");
+  await screenshot(page, "dry-run-final.png");
+  console.log("\n[dry-run] Stopping before Finalize Reservation.");
 }
 
 /** Full run: search, select, add buddies, and finalize */
@@ -361,19 +349,11 @@ export async function selectDateAndBook(page: Page): Promise<boolean> {
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(3000);
 
-  await page.screenshot({
-    path: `${config.screenshotDir}/booking-confirm.png`,
-    fullPage: true,
-  });
-  console.log("Screenshot: booking-confirm.png");
+  await screenshot(page, "booking-confirm.png");
 
   await addBuddies(page);
 
-  await page.screenshot({
-    path: `${config.screenshotDir}/pre-finalize.png`,
-    fullPage: true,
-  });
-  console.log("Screenshot: pre-finalize.png");
+  await screenshot(page, "pre-finalize.png");
 
   const finalized = await finalizeReservation(page);
   if (finalized) {
