@@ -1,0 +1,27 @@
+{
+  "name": "golf-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "start:once": "tsx src/index.ts --once",
+    "start:headless": "HEADLESS=1 tsx src/index.ts --once",
+    "dry-run": "tsx src/index.ts --once --dry-run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "node-cron": "^4.2.1",
+    "playwright": "^1.58.2",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,384 @@
+import { Page, Locator } from "playwright";
+import { config } from "./config.js";
+
+function getTargetDate(): Date {
+  const target = new Date();
+  target.setDate(target.getDate() + config.booking.daysAhead);
+  return target;
+}
+
+interface TeeTime {
+  time: string;
+  time24: string;
+  course: string;
+  holes: string;
+  players: string;
+  buttonText: string;
+  button: Locator;
+}
+
+function parseTime(text: string): string | null {
+  const match = text.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+  if (!match) return null;
+
+  let hours = parseInt(match[1]);
+  const minutes = parseInt(match[2]);
+  const period = match[3].toUpperCase();
+
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+}
+
+function parseTeeTimeButton(text: string): Omit<TeeTime, "button"> | null {
+  // Button text format: "11:20AMMacDonald 9 or 18 HOLES | 2 - 3 GOLFERS $0.00"
+  const match = text.match(
+    /^(\d{1,2}:\d{2}[AP]M)(.+?)\s+(9 or 18|9|18)\s+HOLES?\s*\|\s*(.+?GOLFERS?)\s+\$/
+  );
+  if (!match) return null;
+
+  const timeStr = match[1];
+  const time24 = parseTime(timeStr);
+  if (!time24) return null;
+
+  return {
+    time: timeStr,
+    time24,
+    course: match[2].trim(),
+    holes: match[3],
+    players: match[4].trim(),
+    buttonText: text.trim(),
+  };
+}
+
+function isTimeInWindow(time24: string): boolean {
+  return time24 >= config.booking.earliestTime && time24 <= config.booking.latestTime;
+}
+
+function isPreferredCourse(course: string): boolean {
+  if (config.booking.preferredCourses.length === 0) return true;
+  return config.booking.preferredCourses.some(
+    (c) => course.toLowerCase().includes(c.toLowerCase())
+  );
+}
+
+function coursePriority(course: string): number {
+  const courses = config.booking.preferredCourses;
+  for (let i = 0; i < courses.length; i++) {
+    if (course.toLowerCase().includes(courses[i].toLowerCase())) return i;
+  }
+  return courses.length;
+}
+
+async function expandAllSections(page: Page): Promise<void> {
+  while (true) {
+    const showMore = page.getByRole("button", { name: /show more/i });
+    const count = await showMore.count();
+    if (count === 0) break;
+    await showMore.first().click();
+    await page.waitForTimeout(1000);
+  }
+}
+
+async function navigateToDate(page: Page, target: Date): Promise<void> {
+  const targetDay = target.getDate();
+  const targetMonthName = target.toLocaleString("default", { month: "long" });
+  const targetYear = target.getFullYear();
+
+  console.log(`Navigating to ${targetMonthName} ${targetDay}, ${targetYear}...`);
+
+  // Check if we need to go to the next month
+  const calendarHeader = page.locator("text=/[A-Z][a-z]+ \\d{4}/").first();
+  const headerText = await calendarHeader.textContent().catch(() => "");
+
+  if (headerText && !headerText.includes(targetMonthName)) {
+    const nextArrow = page.locator("button[aria-label='Next month'], .mat-calendar-next-button");
+    if (await nextArrow.count() > 0) {
+      await nextArrow.click();
+      await page.waitForTimeout(1000);
+    }
+  }
+
+  // Click the target day in the calendar
+  const dayCell = page.locator(`.mat-calendar-body-cell:has-text("${targetDay}")`).first();
+  if (await dayCell.count() > 0) {
+    await dayCell.click();
+  } else {
+    console.log(`Calendar cell not found for day ${targetDay}, trying fallback...`);
+    await page.locator(`[class*="calendar"] >> text="${targetDay}"`).first().click();
+  }
+
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(2000);
+}
+
+async function setPlayerFilter(page: Page): Promise<void> {
+  // The tee sheet has player count filter buttons: 2, 3, 4, 5, Any
+  // These are in the "Players" section, separate from the calendar
+  const playerCount = config.booking.players.toString();
+  console.log(`Setting player filter to ${playerCount}...`);
+
+  // Look for the Players section and click the matching number
+  // The player buttons are near the "Players" label
+  const playersSection = page.locator("text=Players").first();
+  if (await playersSection.count() > 0) {
+    // Find the button with the exact player count near the Players label
+    const playerBtn = page.locator(`button:has-text("${playerCount}")`);
+    const allPlayerBtns = await playerBtn.all();
+
+    // The player filter buttons are small buttons with just a number
+    // We need to find the one that's part of the player filter, not calendar
+    for (const btn of allPlayerBtns) {
+      const text = (await btn.textContent())?.trim();
+      if (text === playerCount) {
+        await btn.click();
+        await page.waitForLoadState("networkidle");
+        await page.waitForTimeout(1000);
+        console.log(`Player filter set to ${playerCount}.`);
+        return;
+      }
+    }
+  }
+  console.log("Could not find player filter, proceeding with defaults.");
+}
+
+async function getAllTeeTimes(page: Page): Promise<TeeTime[]> {
+  const teeTimes: TeeTime[] = [];
+  const buttons = await page.getByRole("button").all();
+
+  for (const button of buttons) {
+    const text = await button.textContent().catch(() => "");
+    if (!text) continue;
+
+    const cleaned = text.replace(/\s+/g, " ").trim();
+    const parsed = parseTeeTimeButton(cleaned);
+    if (parsed) {
+      teeTimes.push({ ...parsed, button });
+    }
+  }
+
+  return teeTimes;
+}
+
+async function addBuddies(page: Page): Promise<void> {
+  if (config.booking.buddies.length === 0) return;
+
+  console.log("Adding playing partners...");
+
+  // Wait for the confirmation page to fully load
+  await page.waitForTimeout(3000);
+
+  for (const buddy of config.booking.buddies) {
+    console.log(`  Adding ${buddy}...`);
+
+    // Each Prior Playing Partner is a card: [person_icon] NAME [+ button]
+    // The "+" is a mat-icon button inside the same card as the name.
+    // Find the name text, go up to the card container, then find the + icon.
+    const nameEl = page.locator(`text="${buddy}"`).first();
+    if (await nameEl.count() === 0) {
+      console.log(`  ${buddy} not found in Prior Playing Partners.`);
+      continue;
+    }
+
+    // The + button is the mat-icon "add" sibling within the same card.
+    // Walk up to the nearest ancestor that contains both the name and the + button.
+    // Try clicking the "add" / "+" icon that shares a parent with the buddy name.
+    const card = nameEl.locator("xpath=ancestor::*[.//mat-icon][position()=1]").first();
+    const addIcon = card.locator("mat-icon, .mat-icon").last();
+
+    if (await addIcon.count() > 0) {
+      await addIcon.click();
+      await page.waitForTimeout(1500);
+      console.log(`  ${buddy} added.`);
+    } else {
+      // Fallback: click the + button directly after the name text
+      const plusBtn = nameEl.locator("xpath=following-sibling::*[1] | ../following-sibling::*[1]//button | ../*[contains(@class,'add')]").first();
+      if (await plusBtn.count() > 0) {
+        await plusBtn.click();
+        await page.waitForTimeout(1500);
+        console.log(`  ${buddy} added (fallback).`);
+      } else {
+        console.log(`  Could not find add button for ${buddy}.`);
+      }
+    }
+  }
+}
+
+async function finalizeReservation(page: Page): Promise<boolean> {
+  console.log("Finalizing reservation...");
+
+  // Wait for any loading to finish
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(1000);
+
+  const finalizeBtn = page.getByRole("button", { name: /finalize reservation/i });
+  if (await finalizeBtn.count() === 0) {
+    console.log("Finalize Reservation button not found!");
+    await page.screenshot({
+      path: `${config.screenshotDir}/finalize-missing.png`,
+      fullPage: true,
+    });
+    return false;
+  }
+
+  await finalizeBtn.click();
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(3000);
+
+  await page.screenshot({
+    path: `${config.screenshotDir}/finalized.png`,
+    fullPage: true,
+  });
+  console.log("Screenshot: finalized.png");
+
+  return true;
+}
+
+async function searchTeeTimes(page: Page): Promise<{ target: Date; candidates: TeeTime[]; all: TeeTime[] } | null> {
+  const target = getTargetDate();
+  const dayOfWeek = target.getDay();
+
+  if (
+    config.booking.preferredDays.length > 0 &&
+    !config.booking.preferredDays.includes(dayOfWeek)
+  ) {
+    console.log(`Target date ${target.toDateString()} is not a preferred day, skipping.`);
+    return null;
+  }
+
+  console.log(`Target: ${target.toDateString()} (${config.booking.daysAhead} days ahead)`);
+  console.log(`Window: ${config.booking.earliestTime} - ${config.booking.latestTime}`);
+  console.log(`Courses: ${config.booking.preferredCourses.join(", ")}`);
+  console.log(`Players: ${config.booking.players}`);
+
+  await setPlayerFilter(page);
+  await navigateToDate(page, target);
+
+  await page.screenshot({
+    path: `${config.screenshotDir}/target-date.png`,
+    fullPage: true,
+  });
+  console.log("Screenshot: target-date.png");
+
+  await expandAllSections(page);
+
+  const teeTimes = await getAllTeeTimes(page);
+  if (teeTimes.length === 0) {
+    console.log("No tee times found on this date.");
+    return null;
+  }
+
+  teeTimes.sort((a, b) => a.time24.localeCompare(b.time24));
+
+  const onPreferredCourse = teeTimes.filter((tt) => isPreferredCourse(tt.course));
+
+  console.log(`\nFound ${teeTimes.length} total tee times, ${onPreferredCourse.length} at preferred courses:\n`);
+  console.log("  Time      Course              Slots");
+  console.log("  --------  ------------------  ---------------");
+
+  for (const tt of onPreferredCourse) {
+    const marker = isTimeInWindow(tt.time24) ? " <<" : "";
+    console.log(
+      `  ${tt.time.padEnd(8)}  ${tt.course.padEnd(18)}  ${tt.players}${marker}`
+    );
+  }
+
+  const candidates = onPreferredCourse
+    .filter((tt) => isTimeInWindow(tt.time24))
+    .sort((a, b) => {
+      const pDiff = coursePriority(a.course) - coursePriority(b.course);
+      if (pDiff !== 0) return pDiff;
+      return a.time24.localeCompare(b.time24);
+    });
+
+  if (candidates.length === 0) {
+    const windowMid =
+      (parseInt(config.booking.earliestTime.replace(":", "")) +
+        parseInt(config.booking.latestTime.replace(":", ""))) /
+      2;
+
+    const closest = [...onPreferredCourse].sort((a, b) => {
+      const aDist = Math.abs(parseInt(a.time24.replace(":", "")) - windowMid);
+      const bDist = Math.abs(parseInt(b.time24.replace(":", "")) - windowMid);
+      return aDist - bDist;
+    });
+
+    console.log(`\nNo tee times in window ${config.booking.earliestTime}-${config.booking.latestTime}.`);
+    if (closest.length > 0) {
+      console.log("Closest available:");
+      for (const tt of closest.slice(0, 5)) {
+        console.log(`  ${tt.time.padEnd(8)}  ${tt.course.padEnd(18)}  ${tt.players}`);
+      }
+    }
+  }
+
+  return { target, candidates, all: onPreferredCourse };
+}
+
+/** Dry run: search, select time, add buddies, but do NOT finalize */
+export async function findTeeTimes(page: Page): Promise<void> {
+  const result = await searchTeeTimes(page);
+  if (!result) return;
+
+  if (result.candidates.length === 0) {
+    console.log("\n[dry-run] No bookable times found in window.");
+    return;
+  }
+
+  const pick = result.candidates[0];
+  console.log(`\n[dry-run] Selecting: ${pick.time} at ${pick.course} (${pick.players})`);
+
+  await pick.button.click();
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(3000);
+
+  await page.screenshot({
+    path: `${config.screenshotDir}/booking-confirm.png`,
+    fullPage: true,
+  });
+  console.log("Screenshot: booking-confirm.png");
+
+  await addBuddies(page);
+
+  await page.screenshot({
+    path: `${config.screenshotDir}/dry-run-final.png`,
+    fullPage: true,
+  });
+  console.log("Screenshot: dry-run-final.png");
+  console.log("\n[dry-run] Stopping before Finalize Reservation. Check screenshots.");
+}
+
+/** Full run: search, select, add buddies, and finalize */
+export async function selectDateAndBook(page: Page): Promise<boolean> {
+  const result = await searchTeeTimes(page);
+  if (!result || result.candidates.length === 0) return false;
+
+  const pick = result.candidates[0];
+  console.log(`\nSelecting: ${pick.time} at ${pick.course} (${pick.players})`);
+
+  await pick.button.click();
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(3000);
+
+  await page.screenshot({
+    path: `${config.screenshotDir}/booking-confirm.png`,
+    fullPage: true,
+  });
+  console.log("Screenshot: booking-confirm.png");
+
+  await addBuddies(page);
+
+  await page.screenshot({
+    path: `${config.screenshotDir}/pre-finalize.png`,
+    fullPage: true,
+  });
+  console.log("Screenshot: pre-finalize.png");
+
+  const finalized = await finalizeReservation(page);
+  if (finalized) {
+    console.log(`Booked ${pick.time} at ${pick.course} on ${result.target.toDateString()}!`);
+  }
+
+  return finalized;
+}

@@ -1,0 +1,43 @@
+name: "Golf Bot"
+description: "Automatically books tee times on CPS Golf (Club Prophet Systems) courses"
+version: "0.1.0"
+slug: "golf-bot"
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: manual
+homeassistant_api: true
+options:
+  cps_email: ""
+  cps_password: ""
+  course_url: "https://cityofwichita.cps.golf"
+  players: 2
+  holes: 18
+  earliest_time: "08:30"
+  latest_time: "10:00"
+  days_ahead: 7
+  preferred_days: []
+  preferred_courses:
+    - "MacDonald"
+    - "Arthur B. Sim"
+  buddies:
+    - "REBEKAH BRAKEBILL"
+  schedule_cron: "0 6 * * *"
+schema:
+  cps_email: email
+  cps_password: password
+  course_url: url
+  players: "int(1,5)"
+  holes: "list(9|18)"
+  earliest_time: "match(^\\d{2}:\\d{2}$)"
+  latest_time: "match(^\\d{2}:\\d{2}$)"
+  days_ahead: "int(1,14)"
+  preferred_days:
+    - "int(0,6)"
+  preferred_courses:
+    - str
+  buddies:
+    - str
+  schedule_cron: str
