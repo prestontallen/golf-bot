@@ -1,5 +1,5 @@
 ARG BUILD_FROM
-FROM mcr.microsoft.com/playwright:v1.52.0-noble
+FROM mcr.microsoft.com/playwright:v1.58.2-noble
 
 # Install jq to read HA options.json
 RUN apt-get update && apt-get install -y --no-install-recommends jq \
