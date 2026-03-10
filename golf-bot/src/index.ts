@@ -11,12 +11,23 @@ async function run() {
 
   const browser = await chromium.launch({
     headless: config.headless,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      ...(config.headless ? ["--disable-blink-features=AutomationControlled"] : []),
+    ],
+    channel: config.headless ? "chromium" : undefined,
   });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
+    userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   });
   const page = await context.newPage();
+
+  // Hide automation signals
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => false });
+  });
 
   const dryRun = process.argv.includes("--dry-run");
   if (dryRun) console.log("*** DRY RUN -- will not book ***");
