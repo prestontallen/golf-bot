@@ -215,7 +215,8 @@ async function addBuddies(page: Page): Promise<void> {
   }
 }
 
-async function clickTeeTimeAndWaitForConfirm(page: Page, button: Locator): Promise<void> {
+/** Clicks a tee time button and waits for the checkout page. Returns false if already booked. */
+async function clickTeeTimeAndWaitForConfirm(page: Page, button: Locator): Promise<boolean> {
   console.log("Clicking tee time button...");
 
   // Handle browser-level dialogs (window.confirm) that CPS may use
@@ -232,7 +233,7 @@ async function clickTeeTimeAndWaitForConfirm(page: Page, button: Locator): Promi
 
   console.log(`  LockTeeTimes: ${lockResp.status()}`);
 
-  // CPS may show a warning dialog (e.g. "already have a reservation for this day")
+  // CPS shows a warning dialog when there's already a reservation for that day
   const lockBody = await lockResp.text().catch(() => "");
   try {
     const lockJson = JSON.parse(lockBody);
@@ -240,14 +241,14 @@ async function clickTeeTimeAndWaitForConfirm(page: Page, button: Locator): Promi
       console.log(`  Warning: ${lockJson.warning}`);
       await page.waitForTimeout(2000);
 
-      // Dismiss Angular Material dialog by clicking the affirmative button
+      // Click "No" to cancel — we don't want to double-book
       const dialogBtns = page.locator(".cdk-overlay-container button");
       for (let i = 0; i < await dialogBtns.count(); i++) {
         const btnText = (await dialogBtns.nth(i).textContent())?.trim() ?? "";
-        if (/yes|ok|continue|confirm|book/i.test(btnText)) {
+        if (/no|cancel/i.test(btnText)) {
           await dialogBtns.nth(i).click();
-          console.log(`  Confirmed dialog: "${btnText}"`);
-          break;
+          console.log("  Declined — already have a reservation for this day.");
+          return false;
         }
       }
     }
@@ -272,6 +273,8 @@ async function clickTeeTimeAndWaitForConfirm(page: Page, button: Locator): Promi
     await screenshot(page, "confirm-missing.png");
     throw new Error("Confirmation page never loaded after tee time click");
   }
+
+  return true;
 }
 
 async function finalizeReservation(page: Page): Promise<boolean> {
@@ -386,7 +389,11 @@ export async function findTeeTimes(page: Page): Promise<void> {
   const pick = result.candidates[0];
   console.log(`\n[dry-run] Selecting: ${pick.time} at ${pick.course} (${pick.players})`);
 
-  await clickTeeTimeAndWaitForConfirm(page, pick.button);
+  const proceeded = await clickTeeTimeAndWaitForConfirm(page, pick.button);
+  if (!proceeded) {
+    console.log("\n[dry-run] Already booked for this day, skipping.");
+    return;
+  }
 
   await screenshot(page, "booking-confirm.png");
 
@@ -404,7 +411,11 @@ export async function selectDateAndBook(page: Page): Promise<boolean> {
   const pick = result.candidates[0];
   console.log(`\nSelecting: ${pick.time} at ${pick.course} (${pick.players})`);
 
-  await clickTeeTimeAndWaitForConfirm(page, pick.button);
+  const proceeded = await clickTeeTimeAndWaitForConfirm(page, pick.button);
+  if (!proceeded) {
+    console.log("Already booked for this day, skipping.");
+    return false;
+  }
 
   await screenshot(page, "booking-confirm.png");
 
