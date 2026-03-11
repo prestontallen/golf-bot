@@ -403,10 +403,17 @@ export async function findTeeTimes(page: Page): Promise<void> {
   console.log("\n[dry-run] Stopping before Finalize Reservation.");
 }
 
+export interface BookingResult {
+  time: string;
+  course: string;
+  date: string;
+  players: number;
+}
+
 /** Full run: search, select, add buddies, and finalize */
-export async function selectDateAndBook(page: Page): Promise<boolean> {
+export async function selectDateAndBook(page: Page): Promise<BookingResult | null> {
   const result = await searchTeeTimes(page);
-  if (!result || result.candidates.length === 0) return false;
+  if (!result || result.candidates.length === 0) return null;
 
   const pick = result.candidates[0];
   console.log(`\nSelecting: ${pick.time} at ${pick.course} (${pick.players})`);
@@ -414,7 +421,7 @@ export async function selectDateAndBook(page: Page): Promise<boolean> {
   const proceeded = await clickTeeTimeAndWaitForConfirm(page, pick.button);
   if (!proceeded) {
     console.log("Already booked for this day, skipping.");
-    return false;
+    return null;
   }
 
   await screenshot(page, "booking-confirm.png");
@@ -426,7 +433,13 @@ export async function selectDateAndBook(page: Page): Promise<boolean> {
   const finalized = await finalizeReservation(page);
   if (finalized) {
     console.log(`Booked ${pick.time} at ${pick.course} on ${result.target.toDateString()}!`);
+    return {
+      time: pick.time,
+      course: pick.course,
+      date: result.target.toDateString(),
+      players: config.booking.players,
+    };
   }
 
-  return finalized;
+  return null;
 }

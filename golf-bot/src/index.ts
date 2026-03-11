@@ -71,9 +71,11 @@ async function run() {
     if (dryRun) {
       await findTeeTimes(page);
     } else {
-      const booked = await selectDateAndBook(page);
-      if (booked) {
-        await notify("Tee time booked! Check the add-on logs for details.");
+      const booking = await selectDateAndBook(page);
+      if (booking) {
+        await notify(
+          `Booked ${booking.time} at ${booking.course} on ${booking.date} for ${booking.players} player(s).`
+        );
       } else {
         console.log("No suitable tee time found this run.");
       }
