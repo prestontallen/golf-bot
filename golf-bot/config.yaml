@@ -1,6 +1,6 @@
 name: "Golf Bot"
 description: "Automatically books tee times on CPS Golf (Club Prophet Systems) courses"
-version: "0.2.5"
+version: "0.2.6"
 slug: "golf-bot"
 arch:
   - amd64

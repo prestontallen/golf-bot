@@ -3,6 +3,7 @@ import { chromium } from "playwright";
 import { config, validateConfig } from "./config.js";
 import { login } from "./login.js";
 import { selectDateAndBook, findTeeTimes } from "./book.js";
+import { fetchReservations, publishReservations } from "./reservations.js";
 import { notify } from "./notify.js";
 import { mkdirSync } from "fs";
 
@@ -63,10 +64,17 @@ async function run() {
   });
 
   const dryRun = process.argv.includes("--dry-run");
+  const checkReservations = process.argv.includes("--reservations");
   if (dryRun) console.log("*** DRY RUN -- will not book ***");
 
   try {
     await login(page);
+
+    if (checkReservations) {
+      const reservations = await fetchReservations(page);
+      await publishReservations(reservations);
+      return;
+    }
 
     if (dryRun) {
       await findTeeTimes(page);
@@ -80,6 +88,10 @@ async function run() {
         console.log("No suitable tee time found this run.");
       }
     }
+
+    // Always update reservation sensors after a run
+    const reservations = await fetchReservations(page);
+    await publishReservations(reservations);
   } catch (err) {
     if (!config.isHa) {
       await page.screenshot({
